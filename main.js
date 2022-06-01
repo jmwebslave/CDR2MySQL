@@ -1,6 +1,6 @@
 console.log('Service starting...')
 
-import {config} from './config.js';
+import {config} from './savedconfig.js';
 
 import {access} from 'node:fs/promises';
 import {constants} from 'node:fs';
@@ -94,7 +94,10 @@ async function startWatching() {
         connectMySQL()
             .then(() => processCDRFile(path))
             .then(() => endConnection())
-            .catch(() => console.error("Couldn't complete file "+path))
+            .catch(() => {
+                console.error("Couldn't complete file " + path)
+                endConnection()
+            })
     });
 }
 
