@@ -14,6 +14,11 @@ console.log('Verifying connection to MySQL')
 //Require MySQL DB driver
 import * as mysql from 'mysql';
 
+let workQueue = {
+    queueProcessing: false,
+    queueItems: []
+}
+
 let con = mysql.createConnection({
     host: config.mysql.host,
     user: config.mysql.user,
@@ -91,14 +96,61 @@ async function startWatching() {
     // One-liner for current directory
     chokidar.watch(config.watchdirectory).on('add', async path => {
         console.log('File ' + path + ' has been found.');
-        connectMySQL()
-            .then(() => processCDRFile(path))
-            .then(() => endConnection())
-            .catch(() => {
-                console.error("Couldn't complete file " + path)
-                endConnection()
-            })
+        console.log('Work queue is currently processing: '+workQueue.queueProcessing)
+        workQueue.queueItems.push(path)
+        if(workQueue.queueProcessing === false) {
+            workQueue.queueProcessing = true;
+            await startQueue();
+        }
+        /*console.log('MySQL is currently ' + con.state);
+        if(!con.isConnected) {
+            connectMySQL()
+                .then(() => processCDRFile(path))
+                .catch(() => {
+                    console.error("Couldn't complete file " + path)
+                    endConnection()
+                })
+        } else {
+                processCDRFile(path)
+                .catch(() => {
+                    console.error("Couldn't complete file " + path)
+                    endConnection()
+                })
+        }
+
+         */
     });
+}
+
+async function startQueue() {
+    connectMySQL()
+        .then(() => {
+                workQueue.queueItems.forEach(async queueItem => {
+                    try {
+                        console.log("Queue length (Pre): "+workQueue.queueItems.length);
+                        await processCDRFile(queueItem)
+                        workQueue.queueItems = workQueue.queueItems.filter(e => e !== queueItem)
+                        console.log("Queue length (Post): "+workQueue.queueItems.length);
+                        if (workQueue.queueItems.length === 0) {
+                            endConnection();
+                            workQueue.queueProcessing = false;
+                        }
+                    }
+                    catch(filePath) {
+                        console.log("An error occurred processing "+filePath);
+                        workQueue.queueItems = workQueue.queueItems.filter(e => e !== filePath)
+                        console.log("Queue length (Post): "+workQueue.queueItems.length);
+                        if (workQueue.queueItems.length === 0) {
+                            endConnection();
+                            workQueue.queueProcessing = false;
+                        }
+                    }
+                })
+            })
+        .catch(() => {
+            console.error("Couldn't complete file.")
+            endConnection()
+        })
 }
 
 async function processCDRFile(filePath) {
@@ -107,7 +159,7 @@ async function processCDRFile(filePath) {
         fs.readFile(filePath, 'utf8', async (err, data) => {
             if (err) {
                 console.error('Error (FS): ' + err);
-                reject()
+                reject(filePath)
                 return;
             }
             let result = await neatCsv(data, {'headers': false})
@@ -120,7 +172,7 @@ async function processCDRFile(filePath) {
             result.forEach(cdrRecord => {
                 if (Object.keys(cdrRecord).length !== config.fields.length) {
                     console.error("Error (CSV Parse): Number of fields in CDR record ("+Object.keys(cdrRecord).length+") does not match number of fields in config ("+config.fields.length+").")
-                    reject()
+                    reject(filePath)
                 } else {
                     console.log('Creating MySQL query')
                     Object.keys(cdrRecord).forEach(key => {
@@ -137,7 +189,7 @@ async function processCDRFile(filePath) {
                     con.query('INSERT INTO ' + config.mysql.tablename + ' (' + fieldSet + ') VALUES (' + valuePlaceholder + ')', valueSet, function (err, results) {
                         if (err) {
                             console.error('Error (MySQL): Could not insert CDR row ' + err.message)
-                            reject()
+                            reject(filePath)
                         }
                         if (results.affectedRows === 1) {
                             console.log('Successfully added one CDR row')
@@ -145,7 +197,7 @@ async function processCDRFile(filePath) {
                                 if (err) {
                                     console.error('Error (FS): Could not delete file ' + filePath + err);
                                     console.error(err)
-                                    reject()
+                                    reject(filePath)
                                 } else {
                                     console.log("Deleted file: " + filePath);
                                     resolve();
@@ -154,7 +206,7 @@ async function processCDRFile(filePath) {
                         } else {
                             console.error('Error (MySQL): There was an error adding the CDR row')
                             console.error(result)
-                            reject()
+                            reject(filePath)
                         }
                     })
                 }
