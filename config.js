@@ -1,5 +1,6 @@
 let config = {};
 config.mysql = {};
+config.pg = {};
 config.fields = [];
 
 config.watchdirectory = "C:\\Your\\Path";
@@ -9,6 +10,17 @@ config.mysql.user = 'username';
 config.mysql.password = 'password';
 config.mysql.database = 'database_name';
 config.mysql.tablename = 'table_name';
+
+//queuestats controls whether the system will go to the 3CX postgres database to fill in additional queue fields for queue calls.
+config.queuestats = true;
+
+config.pg.user = 'username';
+config.pg.password = 'password';
+config.pg.database = 'database';
+config.pg.host = '127.0.0.1';
+config.pg.port = 5432;
+config.pg.max = 3;
+
 
 //For each field in the CDR (in order) set the MySQL column name, and whether to store this field in the database.  Column name is not required if not storing the field.
 config.fields.push({name: 'historyid', store: true})

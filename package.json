@@ -20,7 +20,8 @@
   "homepage": "https://github.com/jmwebslave/CDR2MySQL#readme",
   "dependencies": {
     "chokidar": "^3.5.3",
-    "mysql": "^2.18.1",
-    "neat-csv": "^7.0.0"
+    "mysql2": "^2.3.3",
+    "neat-csv": "^7.0.0",
+    "pg": "^8.7.3"
   }
 }
