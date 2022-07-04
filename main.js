@@ -182,10 +182,51 @@ async function pgGetQueueStats(callid) {
     console.log('Checking for Queue Stats for callid: ' + JSON.stringify(callid))
     try {
         const { rows } = await pg_query('SELECT * FROM callcent_queuecalls WHERE call_history_id = $1', [callid])
-        console.log(JSON.stringify(rows))
+        if(rows.length === 1) {
+            let qData = []
+            let fieldList = ''
+            for(const thisField of config.qfields) {
+                qData.push(rows[0][thisField.srcname])
+                if (fieldList !== '') {
+                    fieldList += ', '
+                }
+                fieldList += '`' + thisField.dstname + '` = ?'
+            }
+            qData.push(convertTimespan(rows[0].ts_waiting))
+            fieldList += ', `ts_waiting` = ?, '
+            qData.push(convertTimespan(rows[0].ts_polling))
+            fieldList += '`ts_polling` = ?, '
+            qData.push(convertTimespan(rows[0].ts_servicing))
+            fieldList += '`ts_servicing` = ?'
+            qData.push(callid)
+            const [results, debug] = await con.promise().query('UPDATE ' + config.mysql.tablename + ' SET ' + fieldList + ' WHERE `callid` = ?', qData)
+            if(results.affectedRows > 0) {
+                console.log("QData Record Updated")
+            } else {
+                console.error("QData Record was not updated.")
+                console.error(results)
+            }
+        }
     } catch (err) {
-        console.log('Database ' + err)
+        console.log('PG-Database ' + err)
     }
+}
+
+function convertTimespan(timeObj) {
+    let timeInSeconds = 0
+    if(timeObj.hours) {
+        timeInSeconds += (timeObj.hours*3600)
+    }
+    if(timeObj.minutes) {
+        timeInSeconds += (timeObj.minutes*60)
+    }
+    if(timeObj.seconds) {
+        timeInSeconds += (timeObj.seconds)
+    }
+    if(timeObj.milliseconds) {
+        timeInSeconds += (timeObj.milliseconds/1000)
+    }
+    return timeInSeconds
 }
 
 async function readFile(filePath) {
@@ -210,6 +251,7 @@ async function processCDRFile(filePath) {
                 return Object.keys(element).length !== 0;
             });
             let fieldSet = ''
+            let updateSet = ''
             let valuePlaceholder = ''
             let valueSet = []
             for (const cdrRecord of result) {
@@ -223,19 +265,22 @@ async function processCDRFile(filePath) {
                             if (fieldSet !== '') {
                                 fieldSet += ', '
                                 valuePlaceholder += ', '
+                                updateSet +=', '
                             }
                             fieldSet += '`' + config.fields[key].name + '`'
                             valuePlaceholder += '?'
+                            updateSet += '`' + config.fields[key].name + '`=?'
                             valueSet.push(cdrRecord[key])
                         }
                     }
+                    valueSet = valueSet.concat(valueSet)
                     try {
-                        const [results, debug] = await con.promise().query('INSERT INTO ' + config.mysql.tablename + ' (' + fieldSet + ') VALUES (' + valuePlaceholder + ')', valueSet)
+                        const [results, debug] = await con.promise().query('INSERT INTO ' + config.mysql.tablename + ' (' + fieldSet + ') VALUES (' + valuePlaceholder + ') ON DUPLICATE KEY UPDATE '+updateSet, valueSet)
                             /*if (err) {
                                 console.error('Error (MySQL): Could not insert CDR row ' + err.message)
                                 throw filePath
                             }*/
-                            if (results.affectedRows === 1) {
+                            if (results.affectedRows === 1|| results.affectedRows === 2) {
                                 console.log('Successfully added one CDR row')
                                 if (config.queuestats) {
                                     try {

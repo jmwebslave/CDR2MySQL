@@ -2,6 +2,7 @@ let config = {};
 config.mysql = {};
 config.pg = {};
 config.fields = [];
+config.qfields = [];
 
 config.watchdirectory = "C:\\Your\\Path";
 
@@ -47,5 +48,13 @@ config.fields.push({name: 'from-dispname', store: true})
 config.fields.push({name: 'to-dispname', store: true})
 config.fields.push({name: 'final-dispname', store: true})
 config.fields.push({name: 'missed-queue-calls', store: true})
+
+//For each field we are interested in the queue data table give the field we want to map it to in MySQL (note the three timespans aren't listed here because we do them separately)
+config.qfields.push({srcname: 'q_num', dstname: 'q_num'})
+config.qfields.push({srcname: 'reason_noanswercode', dstname: 'reason_noanswercode'})
+config.qfields.push({srcname: 'reason_failcode', dstname: 'reason_failcode'})
+config.qfields.push({srcname: 'reason_noanswerdesc', dstname: 'reason_noanswerdesc'})
+config.qfields.push({srcname: 'reason_faildesc', dstname: 'reason_faildesc'})
+config.qfields.push({srcname: 'to_dn', dstname: 'to_dn'})
 
 export {config}
