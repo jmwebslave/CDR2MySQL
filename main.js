@@ -75,33 +75,32 @@ function connectMySQL() {
 }
 
 async function checkFields() {
-        console.log('Checking field list.');
-        try {
-            const [results, debug] = await con.promise().query('SHOW COLUMNS FROM `' + config.mysql.tablename + '`')
-                /*if (err) {
-                    console.error('Error (MySQL): Could not get field list. ' + JSON.stringify(err))
-                    throw err
-                }*/
-                console.log(JSON.stringify(results))
-                let searchFields = config.fields.filter(dataField => dataField.store === true)
-                let fieldsOkay = true
-            for (const dataField of searchFields)
-            {
-                        if (results.find(element => element.Field === dataField.name)) {
-                            console.log('Found field:', dataField.name)
-                        } else {
-                            console.error('Missing field:', dataField.name)
-                            fieldsOkay = false
-                        }
-                    }
-                if (fieldsOkay) {
-                    console.log('Fields are OK');
-                } else {
-                    throw debug
-                }
-        } catch (err) {
-            console.log(err)
+    console.log('Checking field list.');
+    try {
+        const [results, debug] = await con.promise().query('SHOW COLUMNS FROM `' + config.mysql.tablename + '`')
+        /*if (err) {
+            console.error('Error (MySQL): Could not get field list. ' + JSON.stringify(err))
+            throw err
+        }*/
+        let searchFields = config.fields.filter(dataField => dataField.store === true)
+        let fieldsOkay = true
+        for (const dataField of searchFields)
+        {
+            if (results.find(element => element.Field === dataField.name)) {
+                console.log('Found field:', dataField.name)
+            } else {
+                console.error('Missing field:', dataField.name)
+                fieldsOkay = false
+            }
         }
+        if (fieldsOkay) {
+            console.log('Fields are OK');
+        } else {
+            throw debug
+        }
+    } catch (err) {
+        console.log(err)
+    }
 }
 
 async function directoryExists() {
@@ -117,7 +116,7 @@ async function directoryExists() {
 
 function endConnection() {
     console.log('Disconnecting');
-    //con.end();
+    con.end();
 }
 
 async function startWatching() {
@@ -173,9 +172,9 @@ async function startQueue() {
             }
         }
     } catch {
-            console.error("Couldn't complete file.")
-            await endConnection()
-        }
+        console.error("Couldn't complete file.")
+        await endConnection()
+    }
 }
 
 async function pgGetQueueStats(callid) {
@@ -240,77 +239,78 @@ async function readFile(filePath) {
 }
 
 async function processCDRFile(filePath) {
-        console.log('Processing file: ' + filePath)
-        const data = await readFile(filePath)
-            /*if (err) {
-                console.error('Error (FS): ' + err);
-                return;
-            }*/
-            let result = await neatCsv(data, {'headers': false})
-            result = result.filter(element => {
-                return Object.keys(element).length !== 0;
-            });
-            let fieldSet = ''
-            let updateSet = ''
-            let valuePlaceholder = ''
-            let valueSet = []
-            for (const cdrRecord of result) {
-                if (Object.keys(cdrRecord).length !== config.fields.length) {
-                    console.error("Error (CSV Parse): Number of fields in CDR record ("+Object.keys(cdrRecord).length+") does not match number of fields in config ("+config.fields.length+").")
-                    throw filePath
-                } else {
-                    console.log('Creating MySQL query for '+filePath)
-                    for (const key of Object.keys(cdrRecord)) {
-                        if (config.fields[key].store === true) {
-                            if (fieldSet !== '') {
-                                fieldSet += ', '
-                                valuePlaceholder += ', '
-                                updateSet +=', '
-                            }
-                            fieldSet += '`' + config.fields[key].name + '`'
-                            valuePlaceholder += '?'
-                            updateSet += '`' + config.fields[key].name + '`=?'
-                            valueSet.push(cdrRecord[key])
-                        }
+    console.log('Processing file: ' + filePath)
+    console.log(con.state)
+    const data = await readFile(filePath)
+    /*if (err) {
+        console.error('Error (FS): ' + err);
+        return;
+    }*/
+    let result = await neatCsv(data, {'headers': false})
+    result = result.filter(element => {
+        return Object.keys(element).length !== 0;
+    });
+    let fieldSet = ''
+    let updateSet = ''
+    let valuePlaceholder = ''
+    let valueSet = []
+    for (const cdrRecord of result) {
+        if (Object.keys(cdrRecord).length !== config.fields.length) {
+            console.error("Error (CSV Parse): Number of fields in CDR record ("+Object.keys(cdrRecord).length+") does not match number of fields in config ("+config.fields.length+").")
+            throw filePath
+        } else {
+            console.log('Creating MySQL query for '+filePath)
+            for (const key of Object.keys(cdrRecord)) {
+                if (config.fields[key].store === true) {
+                    if (fieldSet !== '') {
+                        fieldSet += ', '
+                        valuePlaceholder += ', '
+                        updateSet +=', '
                     }
-                    valueSet = valueSet.concat(valueSet)
-                    try {
-                        const [results, debug] = await con.promise().query('INSERT INTO ' + config.mysql.tablename + ' (' + fieldSet + ') VALUES (' + valuePlaceholder + ') ON DUPLICATE KEY UPDATE '+updateSet, valueSet)
-                            /*if (err) {
-                                console.error('Error (MySQL): Could not insert CDR row ' + err.message)
-                                throw filePath
-                            }*/
-                            if (results.affectedRows === 1|| results.affectedRows === 2) {
-                                console.log('Successfully added one CDR row')
-                                if (config.queuestats) {
-                                    try {
-                                        await pgGetQueueStats(cdrRecord[1]);
-                                    } catch (err) {
-                                        console.log('Could not get queue stats for ' + cdrRecord[1])
-                                    }
-                                }
-                                await fs.promises.unlink(filePath, (err => {
-                                    if (err) {
-                                        console.error('Error (FS): Could not delete file ' + filePath + err);
-                                        console.error(err)
-                                        throw filePath
-                                    } else {
-                                        console.log("Deleted file: " + filePath);
-                                        return filePath
-                                    }
-                                }));
-                            } else {
-                                console.error('Error (MySQL): There was an error adding the CDR row - incorrect number of rows affected')
-                                console.error(results)
-                                throw filePath
-                            }
-                    } catch(err) {
-                        console.error('Error (MySQL): There was an error adding the CDR row')
-                        console.error(err)
-                        throw filePath
-                    }
+                    fieldSet += '`' + config.fields[key].name + '`'
+                    valuePlaceholder += '?'
+                    updateSet += '`' + config.fields[key].name + '`=?'
+                    valueSet.push(cdrRecord[key])
                 }
             }
+            valueSet = valueSet.concat(valueSet)
+            try {
+                const [results, debug] = await con.promise().query('INSERT INTO ' + config.mysql.tablename + ' (' + fieldSet + ') VALUES (' + valuePlaceholder + ') ON DUPLICATE KEY UPDATE '+updateSet, valueSet)
+                /*if (err) {
+                    console.error('Error (MySQL): Could not insert CDR row ' + err.message)
+                    throw filePath
+                }*/
+                if (results.affectedRows === 1|| results.affectedRows === 2) {
+                    console.log('Successfully added one CDR row')
+                    if (config.queuestats) {
+                        try {
+                            await pgGetQueueStats(cdrRecord[1]);
+                        } catch (err) {
+                            console.log('Could not get queue stats for ' + cdrRecord[1])
+                        }
+                    }
+                    await fs.promises.unlink(filePath, (err => {
+                        if (err) {
+                            console.error('Error (FS): Could not delete file ' + filePath + err);
+                            console.error(err)
+                            throw filePath
+                        } else {
+                            console.log("Deleted file: " + filePath);
+                            return filePath
+                        }
+                    }));
+                } else {
+                    console.error('Error (MySQL): There was an error adding the CDR row - incorrect number of rows affected')
+                    console.error(results)
+                    throw filePath
+                }
+            } catch(err) {
+                console.error('Error (MySQL): There was an error adding the CDR row')
+                console.error(err)
+                throw filePath
+            }
+        }
+    }
 }
 
 connectMySQL()
